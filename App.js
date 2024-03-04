@@ -4,10 +4,11 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TextInput, FlatList, Alert, TouchableOpacity, Vibration, Image } from 'react-native';
-import { app, database } from './firebase';
+import { app, database, storage } from './firebase';
 import { collection, addDoc, deleteDoc, updateDoc, doc} from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
 import * as ImagePicker from 'expo-image-picker';
+import { ref, uploadBytes, getDownloadURL, deleteObject, listAll } from 'firebase/storage';
 
 const DURATION = 100;
 
@@ -89,7 +90,6 @@ const MyNotes = ({navigation, route}) => {
         if(docRef.id) {
           setText('');
         }
-
       }
     } catch(error) {
       console.log('Error in Database', error);
@@ -119,18 +119,21 @@ const MyNotes = ({navigation, route}) => {
   
   useEffect(() => {
     updateNote(route.params?.noteId, route.params?.note);
-  }, [navigation, route]);
+  }, [navigation, route.params]);
 
   async function updateNote(noteId, noteText) {
+    if(!noteId && !noteText) {
+      return;
+    }
     try {
       await updateDoc(doc(database, "notebook", noteId), {
         note: noteText,
         timestamp: new Date().toISOString()
       });
+      
     } catch(error) {
       console.log("Error Updating", error);
     }
-
   }
 
   //Navigation to the note
@@ -214,10 +217,13 @@ const NoteDetail = ({navigation, route}) => {
   function openEdit() {
     !edit ? setEdit(true) : setEdit(false);
   }
+  
 
-  //Images
+  // Images controle state
   const [imagePath, setImagePath] = useState(null);
+  //const [isPathEmpty, setIsPathEmpty] = useState(f);
 
+  // Chosse image from device
   async function launchImagePicker() {
     let result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true
@@ -227,6 +233,56 @@ const NoteDetail = ({navigation, route}) => {
       setImagePath(result.assets[0].uri);
     }
   }
+
+  
+  // Upload image
+  async function uploadImage() {
+    const res = await fetch(imagePath);
+    const blob = await res.blob();
+    const storageRef = ref(storage, data.noteId +'.jpeg');
+    uploadBytes(storageRef, blob).then((snapshot) => {
+      alert('Image uploaded');
+    }).catch((error) => {
+      console.error('Error uploading image: ', error);
+    });
+  }
+
+  // Listens to changes in the navigation/route and executes the downloadImage function
+  useEffect(() => {
+    downloadImage();
+  },[navigation, route]);
+
+  // Downlaod image
+  async function downloadImage() {
+    try {
+      const listResult = await listAll(ref(storage));
+      const imageExists = listResult.items.some(item => item.name === `${data.noteId}.jpeg`);
+      
+      if (!imageExists) {
+        setImagePath(null);
+        return;
+      }
+
+      const url = await getDownloadURL(ref(storage, `${data.noteId}.jpeg`));
+      setImagePath(url);
+
+    } catch (error) {
+      alert('Error downloading image: ' + error.message);
+    }
+  }
+  
+
+  async function deleteImage() {
+    try {
+      await deleteObject(ref(storage, `${data.noteId}.jpeg`));
+      setImagePath(null);
+      alert('Image deleted');
+    } catch(error) {
+      alert('Error deleting image: ', error);
+    }
+  }
+
+  
 
   return (
   <View style={styles.container}>
@@ -255,23 +311,27 @@ const NoteDetail = ({navigation, route}) => {
           <AntDesign name="picture" size={34} color="#3f3f3f" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={{}} onPress={() => {Alert.alert('In Progress')}}>
+        <TouchableOpacity style={{}} onPress={uploadImage}>
           <AntDesign name="clouduploado" size={40} color="#3f3f3f" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={{}} onPress={() => {Alert.alert('In Progress')}}>
+        <TouchableOpacity style={{}} onPress={downloadImage}>
           <AntDesign name="clouddownloado" size={40} color="#3f3f3f" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={{}} onPress={() => {Alert.alert('In Progress')}}>
+        <TouchableOpacity style={{}} onPress={deleteImage}>
           <AntDesign name="delete" size={34} color="#3f3f3f" />
         </TouchableOpacity>
-
-      </View>
-      <View>
-        <Image style={{ width: 200, height: 200, resizeMode: 'contain' }}source={{uri: imagePath}} />
       </View>
     </View>
+    {imagePath === null ? null : (
+      <View style={{ padding: 6, marginTop: 25, backgroundColor: '#f2f2f2', borderRadius: 14}}> 
+        <Image
+          style={{ width: 300, height: 200, resizeMode: 'cover', borderRadius: 10}} 
+          source={{ uri: imagePath }}
+          />
+      </View>
+    )}
   </View>);
 }
 
