@@ -1,26 +1,45 @@
 import { StatusBar } from 'expo-status-bar';
-import { Foundation, Feather, MaterialIcons, AntDesign } from '@expo/vector-icons';
+import { Foundation, Feather, MaterialIcons, AntDesign, SimpleLineIcons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, FlatList, Alert, TouchableOpacity, Vibration, Image } from 'react-native';
+import { StyleSheet, Text, View, TextInput, FlatList, Alert, TouchableOpacity, Vibration, Image, Keyboard, Modal, KeyboardAvoidingView, Pressable, Button} from 'react-native';
 import { app, database, storage } from './firebase';
 import { collection, addDoc, deleteDoc, updateDoc, doc} from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, createUserWithEmailAndPassword, signOut, initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import  ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL, deleteObject, listAll } from 'firebase/storage';
 
 const DURATION = 100;
 
+let auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
 export default function App() {
   const Stack = createNativeStackNavigator();
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName='MyNotes'>
+      <Stack.Navigator initialRouteName='Login'>
+        <Stack.Screen
+        name='Login'
+        component={LoginPage}
+        options={{
+          headerShown: true,
+          headerTitle: '',
+          headerStyle: {
+            backgroundColor: '#e1eedd',
+          },
+          headerShadowVisible: false,
+        }}
+        />
+
         <Stack.Screen
           name='myNotes'
           component={MyNotes}
           options={{
+            gestureEnabled: false,
             headerShown: true,
             headerTitle: '',
             headerStyle: {
@@ -28,17 +47,21 @@ export default function App() {
             },
             headerTintColor: '#fff',
             headerShadowVisible: false,
-            headerTitleStyle: {
-              fontWeight: '400',
-              fontSize: 20,
-            },
             headerRight: () => (
               <TouchableOpacity onPress={() => Alert.alert('In Progress','Modal is on its way 😎')}>
                 <MaterialIcons name="settings" size={24} color="#3f3f3f" style={{ marginRight: 10 }} />
               </TouchableOpacity>
             ),
+            headerBackTitleVisible: false,
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Button title='logout' onPress={() => {
+                signOut()
+              }} />
+            )
           }}
         />
+        
         <Stack.Screen 
           name='myNote'
           component={NoteDetail}
@@ -68,10 +91,141 @@ export default function App() {
   );
 }
 
+
+const LoginPage = ({ navigation, route }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [user, setUser] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false)
+
+
+  /*--- Firebase login ---*/
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if(currentUser) {
+        setUser(currentUser);
+        navigateToMyNotes(currentUser.uid); 
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+
+  async function login() {
+    if(!email || !password) {
+      Alert.alert('Attention!','Please fill out all fields');
+      return
+    };
+
+    try {
+      const userCredentials = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Logged in:', userCredentials.user.uid);
+      if(userCredentials) {
+        setUser(userCredentials.user);
+        navigateToMyNotes(userCredentials.user.uid);
+      } 
+    } catch (err) {
+      Alert.alert('Invalid credentials', "No account found. Check the email / passaword and try again.")
+      console.log('Error in Login:', err);
+    }
+  }
+
+  function navigateToMyNotes(uid) {
+    navigation.navigate('myNotes', { uid: uid });
+ }
+
+  function signUpModal() {
+    setModalVisible(true);
+  }
+  
+  async function signUp() {
+    if(!email || !password) {
+      Alert.alert('Attention!','Please fill out all fields');
+      return
+    }
+    try {
+      const signUpCredentials = await createUserWithEmailAndPassword(auth, email, password);
+      if(signUpCredentials) {
+        setModalVisible(false);
+      }
+    } catch(err) {
+      Alert.alert('Attention!', "Not valid email or password. Please try again.");
+    }
+  }
+
+  return (
+    <View style={styles.outerContainer}>
+        <Pressable style={styles.loginContainer} onPress={Keyboard.dismiss}>
+          <View style={styles.textInputContainer}>
+            <Text style={ [styles.header, {marginBottom: 15}] }> 
+              my <Foundation name="clipboard-notes" size={44} color="#aad5aa" /> Notebook 
+            </Text>
+            <TextInput style={styles.textInput} value={email} onChangeText={setEmail} placeholder='Enter email' autoCapitalize='none' clearButtonMode='always' textContentType='none' placeholderTextColor='#5d5d5d'/>
+            <TextInput style={styles.textInput} value={password} onChangeText={setPassword} placeholder='Enter password' autoCapitalize='none' clearButtonMode='always' secureTextEntry placeholderTextColor='#5d5d5d'/>
+            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', width: '80%', marginTop: 10}}>
+              <TouchableOpacity onPress={login}>
+              <MaterialIcons name="login" size={45} color="#3f3f3f" />
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={signUpModal}>
+                <AntDesign name="adduser" size={45} color="#3f3f3f" />
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </Pressable>
+
+
+      <Modal animationType='fade' transparent={true} visible={modalVisible}>
+        <KeyboardAvoidingView style={[styles.loginContainer]}>
+          <Pressable style={[styles.loginContainer]} onPress={Keyboard.dismiss}>
+            <View style={styles.centeredView}>
+              <View style={styles.modalView}>
+                <Text style={styles.modalText}>Sign up</Text>
+                <TextInput style={styles.textInput} value={email} onChangeText={setEmail} placeholder='Enter your email' placeholderTextColor='#5d5d5d' autoCapitalize='none' clearButtonMode='always'/>
+                <TextInput style={styles.textInput} value={password} onChangeText={setPassword} placeholder='Enter password' placeholderTextColor='#5d5d5d' />
+
+                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', width: '80%', marginTop: 10}}>
+                  <TouchableOpacity onPress={signUp}>
+                    <MaterialIcons name="add-circle" size={45} color="#3f3f3f" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={() => setModalVisible(!modalVisible)}>
+                    <MaterialIcons name="cancel" size={45} color="#3f3f3f" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+
+  );
+}
+
 const MyNotes = ({navigation, route}) => {
-  //const [notes, setNotes] = useState([]);
+  const [userCollection, setUserCollection] = useState(route.params?.uid);
   const [text, setText] = useState('');
-  const [values, loading, error] = useCollection(collection(database,"notebook"));
+  const [values, loading, error] = useCollection(collection(database, userCollection));
+
+
+  async function logout() {
+    await signOut(auth);
+    navigation.navigate('Login');
+  }
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={logout}>
+          <SimpleLineIcons name="logout" size={22} color="#3f3f3f" style={{ marginLeft: 10 }}/>
+        </TouchableOpacity>
+      
+      ),
+    });
+  }, [navigation]);
 
   const data = values?.docs
     .map((doc) => ({...doc.data(), noteId: doc.id}))
@@ -82,8 +236,9 @@ const MyNotes = ({navigation, route}) => {
       if(text.trim() === '') {
         Alert.alert('Invalid Action','Cannot add a blank note!');
       } else {
-        const docRef = await addDoc(collection(database, "notebook"),
-        { note: text,
+        const docRef = await addDoc(collection(database, userCollection),
+        { 
+          note: text,
           timestamp: new Date().toISOString()
         });
 
@@ -104,7 +259,7 @@ const MyNotes = ({navigation, route}) => {
         {
           text: 'OK',
           onPress: async () => {
-            await deleteDoc(doc(database, "notebook", noteId));
+            await deleteDoc(doc(database, userCollection, noteId));
           }
         },
         {
@@ -116,7 +271,6 @@ const MyNotes = ({navigation, route}) => {
     }
   }
   
-  
   useEffect(() => {
     updateNote(route.params?.noteId, route.params?.note);
   }, [navigation, route.params]);
@@ -126,7 +280,7 @@ const MyNotes = ({navigation, route}) => {
       return;
     }
     try {
-      await updateDoc(doc(database, "notebook", noteId), {
+      await updateDoc(doc(database, userCollection, noteId), {
         note: noteText,
         timestamp: new Date().toISOString()
       });
@@ -138,14 +292,16 @@ const MyNotes = ({navigation, route}) => {
 
   //Navigation to the note
   function updateNoteNavigateToNote(item) { // The name sucks, remember to change it
-    navigation.navigate('myNote', {data: item});
+    navigation.navigate('myNote', {data: item, userCollection: userCollection});
   }
 
   return (
     <View style={ styles.container }>
 
       {/* Title */}
-      <Text style={ styles.header }> my <Foundation name="clipboard-notes" size={44} color="#aad5aa" /> Notebook </Text>
+      <Text style={ styles.header }> 
+        my <Foundation name="clipboard-notes" size={44} color="#aad5aa" /> Notebook 
+      </Text>
 
       {/* Note creation and add */}
       <View style={ styles.inputContainer }>
@@ -206,9 +362,11 @@ const MyNotes = ({navigation, route}) => {
 
 const NoteDetail = ({navigation, route}) => {
   const data = route.params?.data;
+  const userCollection = route.params?.userCollection;
   const [text, setText] = useState(data.note);
   const [edit, setEdit] = useState(false);
-  //const [isFocused, setIsFocused] = useState(false);
+  const [imagePath, setImagePath] = useState(null);
+
   function updateNoteText() {
     const updatedNote = {...data, noteId: data.noteId, note: text };
     navigation.navigate('myNotes', updatedNote);
@@ -217,121 +375,157 @@ const NoteDetail = ({navigation, route}) => {
   function openEdit() {
     !edit ? setEdit(true) : setEdit(false);
   }
-  
 
-  // Images controle state
-  const [imagePath, setImagePath] = useState(null);
-  //const [isPathEmpty, setIsPathEmpty] = useState(f);
-
-  // Chosse image from device
   async function launchImagePicker() {
     let result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true
     })
     
     if(!result.canceled) {
-      setImagePath(result.assets[0].uri);
+      setImagePath([{image: result.assets[0].uri},...imagePath]);
     }
   }
 
-  
   // Upload image
-  async function uploadImage() {
-    const res = await fetch(imagePath);
+  async function uploadImage(image) {
+    const res = await fetch(image);
     const blob = await res.blob();
-    const storageRef = ref(storage, data.noteId +'.jpeg');
-    uploadBytes(storageRef, blob).then((snapshot) => {
-      alert('Image uploaded');
-    }).catch((error) => {
-      console.error('Error uploading image: ', error);
-    });
+    
+    const timeStamp = Date.now().toString();
+  
+    const storageRef = ref(storage, `${userCollection}/${data.noteId}/${timeStamp}.jpeg`);
+  
+    uploadBytes(storageRef, blob)
+      .then((snapshot) => {
+        Alert.alert('Success!','Image Uploaded ');
+      })
+      .catch((error) => {
+        console.error('Error uploading image: ', error);
+        
+      });
   }
-
-  // Listens to changes in the navigation/route and executes the downloadImage function
-  useEffect(() => {
-    downloadImage();
-  },[navigation, route]);
-
-  // Downlaod image
-  async function downloadImage() {
+  
+  // Downloads list of images
+  async function downloadImages() {
     try {
-      const listResult = await listAll(ref(storage));
-      const imageExists = listResult.items.some(item => item.name === `${data.noteId}.jpeg`);
+      const listResult = await listAll(ref(storage, `${userCollection}/${data.noteId}`));
       
-      if (!imageExists) {
-        setImagePath(null);
-        return;
-      }
+      const urls = [];
 
-      const url = await getDownloadURL(ref(storage, `${data.noteId}.jpeg`));
-      setImagePath(url);
+      await Promise.all(listResult.items.map(async (item) => {
+        const url = await getDownloadURL(item);
+        urls.push({ image: url });
+      }));
+      
+      setImagePath(urls);
 
     } catch (error) {
-      alert('Error downloading image: ' + error.message);
-    }
+      console.error('Error downloading images: ', error);
+    } 
   }
-  
 
-  async function deleteImage() {
+  // Delete image
+  async function deleteImage(image) {
     try {
-      await deleteObject(ref(storage, `${data.noteId}.jpeg`));
-      setImagePath(null);
+      const fileName = image.split('/').pop().split('%2F').pop().split('?')[0];
+      const storageRef = ref(storage, `${userCollection}/${data.noteId}/${fileName}`);
+      await deleteObject(storageRef);
+
+      const updatedUrls = imagePath.filter((url) =>  url.image !== image);
+      setImagePath(updatedUrls);
+
       alert('Image deleted');
     } catch(error) {
-      alert('Error deleting image: ', error);
+      console.error('Error deleting image:', error);
+      alert('Error deleting image. Please try again later.');
     }
   }
 
-  
+  useEffect(() => {
+    downloadImages();
+  },[navigation, route.params]);
+
+  // Camera
+  async function launchCamera() {
+    const result = await ImagePicker.requestCameraPermissionsAsync();
+    if(result.granted === false) {
+      console.log("Camera not available");
+    } else {
+      console.log("Camera access granted");
+      ImagePicker.launchCameraAsync({
+        //quality: 1
+      })
+      .then((response) => {
+        setImagePath([{image: response.assets[0].uri},...imagePath]);
+      });
+    }
+  }
+
 
   return (
   <View style={styles.container}>
-    <View style={{width: '96%', marginTop: 16, justifyContent: 'center'}}>
-      <View style={{backgroundColor: '#f2f2f2', width: '100%', padding: 5, borderRadius: 10}}>
+    <View style={styles.noteDetailContainer}>
+      <View style={styles.noteBtnsContainer}>
+        <TouchableOpacity onPress={openEdit}>
+          <AntDesign name="edit" size={34} color="#3f3f3f" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={updateNoteText}>
+          <MaterialIcons name="save-as" size={35} color="#3f3f3f" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.noteDetailTextContainer}>
         <TextInput
-          style={{ paddingHorizontal: 8, fontSize: 17, maxHeight: 260, marginBottom: 8, marginTop: 2, lineHeight: 25 }} 
+          style={styles.noteDetailTextInput} 
           value={text}
           onChangeText={setText}
           multiline={true}
           textAlignVertical='top'
           editable={edit}
-          
         />
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginTop: 20, width: '100%'}}>
-        <TouchableOpacity style={{}} onPress={openEdit}>
-          <AntDesign name="edit" size={34} color="#3f3f3f" />
-        </TouchableOpacity>
 
-        <TouchableOpacity style={{}} onPress={updateNoteText}>
-          <MaterialIcons name="save-as" size={35} color="#3f3f3f" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={{}} onPress={launchImagePicker} >
-          <AntDesign name="picture" size={34} color="#3f3f3f" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={{}} onPress={uploadImage}>
-          <AntDesign name="clouduploado" size={40} color="#3f3f3f" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={{}} onPress={downloadImage}>
+      <View style={[styles.noteBtnsContainer, styles.noteBtnsImage]}>
+        <TouchableOpacity onPress={downloadImages}>
           <AntDesign name="clouddownloado" size={40} color="#3f3f3f" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={{}} onPress={deleteImage}>
-          <AntDesign name="delete" size={34} color="#3f3f3f" />
+        <TouchableOpacity onPress={launchImagePicker} >
+          <AntDesign name="picture" size={34} color="#3f3f3f" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={launchCamera}>
+          <Feather name="camera" size={34} color="#3f3f3f" />
         </TouchableOpacity>
       </View>
     </View>
-    {imagePath === null ? null : (
-      <View style={{ padding: 6, marginTop: 25, backgroundColor: '#f2f2f2', borderRadius: 14}}> 
-        <Image
-          style={{ width: 300, height: 200, resizeMode: 'cover', borderRadius: 10}} 
-          source={{ uri: imagePath }}
-          />
-      </View>
-    )}
+
+    <View style={styles.noteDetailFlatlistContainer}>
+      <FlatList 
+        horizontal={true}
+        showsHorizontalScrollIndicator={true}
+        data={imagePath}
+        renderItem={({item}) => (
+          <View style={styles.imageViewContainer}> 
+            <Image 
+              style={styles.noteDetailImage} 
+              source={{ uri: item.image }}
+            />
+        
+            <View style={styles.noteDetailImageBtn}>
+              <TouchableOpacity onPress={()=> uploadImage(item.image)}>
+                <AntDesign name="clouduploado" size={40} color="#3f3f3f" />
+              </TouchableOpacity>
+        
+              <TouchableOpacity onPress={() => deleteImage(item.image)}>
+                <AntDesign name="delete" size={34} color="#3f3f3f" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      />
+    </View>
   </View>);
 }
 
@@ -356,7 +550,7 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 5,
     paddingVertical: 3,
-    borderRadius: 50,
+    borderRadius: 50, 
     backgroundColor: '#f2f2f2',
     width: '93%',
     gap: 5,
@@ -369,10 +563,6 @@ const styles = StyleSheet.create({
     fontWeight: '200',
     paddingLeft: 8,
     paddingRight: 8,
-  },
-  addBtn: { // for later 
-    fontSize: 40,
-    fontWeight: '900',
   },
   notesContainer: {
     flex: 1, 
@@ -426,5 +616,132 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     gap: 8, 
     marginRight: 8
-  }
+  },
+  noteDetailContainer: {
+    width: '96%', 
+    marginTop: 16, 
+    justifyContent: 'center'
+  },
+  noteBtnsContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginBottom: 10, 
+    width: '100%', 
+    gap: 26, 
+    borderBottomWidth: 1, 
+    borderColor: '#dcdcdc', 
+    paddingBottom: 5 
+  },
+  noteBtnsImage: {
+    marginTop: 20
+  },
+  noteDetailTextContainer: {
+    backgroundColor: '#f2f2f2', 
+    width: '100%', 
+    padding: 5, 
+    borderRadius: 10
+  },
+  noteDetailTextInput: { 
+    paddingHorizontal: 8, 
+    fontSize: 17, 
+    maxHeight: 240, 
+    marginBottom: 8, 
+    marginTop: 2, 
+    lineHeight: 25 
+  },
+  noteDetailFlatlistContainer: { 
+    width: '100%', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  imageViewContainer: { 
+    backgroundColor:'#aad5aa', 
+    marginHorizontal: 10, 
+    borderWidth: 4, 
+    borderRadius: 14, 
+    borderColor: '#aad5aa' 
+  },
+  noteDetailImage: { 
+    width: 340, 
+    height: 240, 
+    resizeMode: 'cover', 
+    borderTopLeftRadius: 10, 
+    borderTopRightRadius: 10,
+  },
+  noteDetailImageBtn: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-evenly', 
+    marginTop: 10
+  },
+
+  /* --- Login --- */
+  
+  outerContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e1eedd'
+  },
+  loginContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  textInputContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 170
+  },
+  textInput: {
+    borderWidth: 0,
+    borderColor: '#e6e6e6', 
+    width: '82%',
+    borderWidth: 0.2,
+    padding: 12,
+    marginHorizontal: 5,
+    marginVertical: 8,
+    fontSize: 18,
+    backgroundColor: '#f2f2f2',
+    borderRadius: 50,
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 22,
+  },
+  modalText: {
+    marginBottom: 15,
+    textAlign: 'center',
+    fontSize: 35,
+    fontWeight: '600',
+    color: "#3f3f3f",
+  },
+  modalView: {
+    margin: 20,
+    width: '80%',
+    height: '42%',
+    backgroundColor: '#e1eedd',
+    borderRadius: 20,
+    paddingVertical: 35,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  button: {
+    borderRadius: 20,
+    padding: 10,
+    elevation: 2,
+  },
+  buttonClose: {
+    backgroundColor: '#2196F3',
+  },
+
 });
