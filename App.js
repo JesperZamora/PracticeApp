@@ -11,6 +11,18 @@ import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, createUserWith
 import  ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL, deleteObject, listAll } from 'firebase/storage';
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  runOnJS,
+  FadeInDown,
+} from "react-native-reanimated";
 
 const DURATION = 100;
 
@@ -126,7 +138,7 @@ const LoginPage = ({ navigation, route }) => {
         navigateToMyNotes(userCredentials.user.uid);
       } 
     } catch (err) {
-      Alert.alert('Invalid credentials', "No account found. Check the email / passaword and try again.")
+      Alert.alert('Invalid credentials', "No account found. Check the email / passaword and try again.");
       console.log('Error in Login:', err);
     }
   }
@@ -163,6 +175,7 @@ const LoginPage = ({ navigation, route }) => {
             </Text>
             <TextInput style={styles.textInput} value={email} onChangeText={setEmail} placeholder='Enter email' autoCapitalize='none' clearButtonMode='always' textContentType='none' placeholderTextColor='#5d5d5d'/>
             <TextInput style={styles.textInput} value={password} onChangeText={setPassword} placeholder='Enter password' autoCapitalize='none' clearButtonMode='always' secureTextEntry placeholderTextColor='#5d5d5d'/>
+            
             <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', width: '80%', marginTop: 10}}>
               <TouchableOpacity onPress={login}>
               <MaterialIcons name="login" size={45} color="#3f3f3f" />
@@ -177,12 +190,13 @@ const LoginPage = ({ navigation, route }) => {
         </Pressable>
 
 
-      <Modal animationType='fade' transparent={true} visible={modalVisible}>
-        <KeyboardAvoidingView style={[styles.loginContainer]}>
+      <Modal animationType='slide' transparent={true} visible={modalVisible}>
+        <KeyboardAvoidingView behavior={'paddig'} style={[styles.loginContainer]  }>
           <Pressable style={[styles.loginContainer]} onPress={Keyboard.dismiss}>
             <View style={styles.centeredView}>
               <View style={styles.modalView}>
                 <Text style={styles.modalText}>Sign up</Text>
+                
                 <TextInput style={styles.textInput} value={email} onChangeText={setEmail} placeholder='Enter your email' placeholderTextColor='#5d5d5d' autoCapitalize='none' clearButtonMode='always'/>
                 <TextInput style={styles.textInput} value={password} onChangeText={setPassword} placeholder='Enter password' placeholderTextColor='#5d5d5d' />
 
@@ -295,6 +309,10 @@ const MyNotes = ({navigation, route}) => {
     navigation.navigate('myNote', {data: item, userCollection: userCollection});
   }
 
+  async function onSwipeOff(noteId) {
+    await deleteDoc(doc(database, userCollection, noteId));
+  }
+
   return (
     <View style={ styles.container }>
 
@@ -328,36 +346,85 @@ const MyNotes = ({navigation, route}) => {
           <Text style={styles.notesHeaderText}> My notes:</Text>
         </View>
 
-        <FlatList 
-          style={styles.flatlist}
-          showsVerticalScrollIndicator={false}
-          data={data}
-          renderItem={({item}) => (
-            <View style={styles.noteContainer}>
-
-              <View style={styles.noteInnerContainer}>
-                <MaterialIcons name="sticky-note-2" size={32} color="#aad5aa" />
-                
-                <Text style={styles.noteTextStyle}> {item.note?.substring(0, 20)}</Text>
-              </View>
-
-              <View style={styles.noteBtnGroup}>
-                <TouchableOpacity onPress={() => updateNoteNavigateToNote(item)}>
-                  <MaterialIcons name="edit-note" size={36} color="#3f3f3f" />
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => deleteNote(item.noteId)}>
-                  <AntDesign name="delete" size={28} color="#3f3f3f" />
-                </TouchableOpacity>
-              </View> 
-            </View>
-          )}
-        />
+        <GestureHandlerRootView style={{flex: 1, justifyContent: 'center'}}>
+          <FlatList
+            contentContainerStyle={{padding: 5}}
+            showsVerticalScrollIndicator={false}
+            data={data}
+            renderItem={({item}) => (
+              <NoteItem key={item.noteId} item={item} onSwipeOff={onSwipeOff} 
+              updateNoteNavigateToNote={updateNoteNavigateToNote} 
+              deleteNote={deleteNote} />
+            )}
+          />
+        </GestureHandlerRootView>
       </View>
 
       <StatusBar style="auto" />
     </View>
   );
+}
+
+const NoteItem = ({item, onSwipeOff, updateNoteNavigateToNote, deleteNote }) => {
+  const translateX = useSharedValue(0);
+  const rotate = useSharedValue(0);
+
+  const pan = Gesture.Pan()
+    .minDistance(20)
+    .onStart(() => {})
+    .onUpdate((event) => {
+      if(event.translationX > 0) {
+        translateX.value = 0;
+        rotate.value = 0;
+      } else {
+        translateX.value = event.translationX;
+        rotate.value = (translateX.value / 250) * -10;
+      }
+    })
+    .onEnd(() => {
+      if (Math.abs(translateX.value) > 200) {
+        translateX.value = withSpring(500);
+        runOnJS(onSwipeOff)(item.noteId);
+      } else {
+        translateX.value = withSpring(0);
+        rotate.value = withSpring(0);
+      }
+    });
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateX: translateX.value},
+        { rotate: `${rotate.value} deg`}
+      ]
+    };
+  });
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[animatedStyle]} entering={FadeInDown.delay(200).springify()}>
+        <View style={styles.noteContainer}>
+
+          <View style={styles.noteInnerContainer}>
+            <MaterialIcons name="sticky-note-2" size={32} color="#aad5aa" />
+            
+            <Text style={styles.noteTextStyle}> {item.note?.substring(0, 20)}</Text>
+          </View>
+
+          <View style={styles.noteBtnGroup}>
+            <TouchableOpacity onPress={() => updateNoteNavigateToNote(item)}>
+              <MaterialIcons name="edit-note" size={36} color="#3f3f3f" />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => deleteNote(item.noteId)}>
+              <AntDesign name="delete" size={28} color="#3f3f3f" />
+            </TouchableOpacity>
+          </View>
+
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  )
 }
 
 const NoteDetail = ({navigation, route}) => {
@@ -703,6 +770,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     backgroundColor: '#f2f2f2',
     borderRadius: 50,
+    fontWeight: '200',
   },
   centeredView: {
     flex: 1,
